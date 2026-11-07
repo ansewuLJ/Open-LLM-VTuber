@@ -5,15 +5,11 @@
 set -e
 cd "$(dirname "$0")"
 LIBS=$(find "$PWD/.venv/lib/python3.10/site-packages/nvidia" -maxdepth 2 -type d -name lib | paste -sd:)
-# BreezeTTS2 voice clone: the reference is loaded once by openai_tts.py.
-# Set VTUBER_TTS_INSTRUCTIONS empty for pure cloning; the reference audio
-# supplies the voice identity. To restore Qwen3 CustomVoice, use the
-# start_vtuber.sh.qwen3.bak backup.
-export VTUBER_TTS_INSTRUCTIONS="${VTUBER_TTS_INSTRUCTIONS-保持参考音色，语速稍慢一点，句尾读完整，吐字清晰，语气自然。}"
+# Qwen3-TTS CustomVoice: the preset voice is set in conf.yaml (`voice`),
+# and the style is controlled by `instructions`. It does not use reference
+# audio or Breeze-specific sample-rate / guidance parameters.
+export VTUBER_TTS_INSTRUCTIONS="${VTUBER_TTS_INSTRUCTIONS-吐字清晰，语速稍慢，语气自然，不要低沉。}"
 export VTUBER_TTS_SEED="${VTUBER_TTS_SEED:-42}"
-export VTUBER_TTS_REF_AUDIO="${VTUBER_TTS_REF_AUDIO:-$PWD/voice_samples/reference/reference_24k.wav}"
-export VTUBER_TTS_REF_TEXT="${VTUBER_TTS_REF_TEXT:-四十六亿年前，漫天的尘埃和岩石碎片在太阳周围不断碰撞聚拢，团成了一颗滚烫的星球。他还没来得及喘口气，一场足以改写命运的撞击就来了，一颗颗火星。}"
-export VTUBER_TTS_SAMPLE_RATE="${VTUBER_TTS_SAMPLE_RATE:-24000}"
-export VTUBER_TTS_EXTRA_PARAMS="${VTUBER_TTS_EXTRA_PARAMS:-{\"guidance_scale\":4.0}}"
+unset VTUBER_TTS_REF_AUDIO VTUBER_TTS_REF_TEXT VTUBER_TTS_SAMPLE_RATE VTUBER_TTS_EXTRA_PARAMS
 export LD_LIBRARY_PATH="$LIBS${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 exec .venv/bin/python run_server.py "$@"

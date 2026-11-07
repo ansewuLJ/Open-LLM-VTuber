@@ -74,6 +74,7 @@ conf.yaml.backup
 # Local TTS backups and generated voice samples (may contain personal audio)
 *.bak
 voice_samples/
+model_backups/
 
 tmp/
 private/
