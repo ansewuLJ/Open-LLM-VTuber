@@ -30,6 +30,12 @@ def tts_filter(
     Returns:
         str: The filtered text.
     """
+    # Markdown headings, bullets, blockquotes and inline code markers are not
+    # speech; strip the markers but keep the text they decorate. This runs
+    # before the filters below collapse newlines, otherwise line-start bullets
+    # can no longer be identified.
+    text = strip_markdown(text)
+
     if ignore_asterisks:
         try:
             text = filter_asterisks(text)
@@ -59,6 +65,7 @@ def tts_filter(
             logger.warning(f"Error ignoring angle brackets: {e}")
             logger.warning(f"Text: {text}")
             logger.warning("Skipping...")
+
     if remove_special_char:
         try:
             text = remove_special_characters(text)
@@ -78,6 +85,51 @@ def tts_filter(
 
     logger.debug(f"Filtered text: {text}")
     return text
+
+
+def strip_markdown(text: str) -> str:
+    """Strip Markdown markers and symbols that are not speakable."""
+    # Fenced code blocks are not useful in speech.
+    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    # Keep link text, drop the URL.
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+
+    # Headings, blockquotes, bullets, numbered-list markers and rules.
+    text = re.sub(r"(?m)^\s*#{1,6}\s*", "", text)
+    text = re.sub(r"(?m)^\s*>\s?", "", text)
+    text = re.sub(r"(?m)^\s*[-*+]\s+", "", text)
+    text = re.sub(r"(?m)^\s*\d+[.、)]\s+", "", text)
+    text = re.sub(r"(?m)^\s*-{3,}\s*$", "", text)
+
+    # Markdown table separator rows; then turn remaining pipes into pauses.
+    text = re.sub(r"(?m)^\s*\|?[\s:|-]+\|?\s*$", "", text)
+    text = text.replace("|", "，")
+
+    # Arrows and common math/technical symbols that Breeze cannot read well.
+    for arrow in ("→", "⇒", "➡", "➔", "->"):
+        text = text.replace(arrow, "，然后，")
+    for arrow in ("←", "⇐", "<-"):
+        text = text.replace(arrow, "，来自，")
+    text = text.replace("↑", "上升").replace("↓", "下降").replace("↔", "互相")
+    text = text.replace("•", "，").replace("·", "，").replace("▪", "，").replace("◦", "，")
+    text = text.replace("—", "，").replace("–", "，")
+    text = text.replace("≈", "约等于").replace("≥", "大于等于").replace("≤", "小于等于")
+    text = text.replace("≠", "不等于").replace("×", "乘以").replace("÷", "除以")
+    text = text.replace("±", "正负").replace("℃", "摄氏度")
+    text = text.replace("°F", "华氏度").replace("°C", "摄氏度")
+    text = text.replace("°", "度")
+
+    # Inline code backticks; keep the code text itself.
+    text = text.replace("`", "")
+    # Basic emoji removal; they have no spoken form.
+    text = re.sub(r"[\U0001F300-\U0001FAFF☀-➿]", "", text)
+
+    # Collapse punctuation introduced by the replacements.
+    text = re.sub(r"[,，]{2,}", "，", text)
+    text = re.sub(r"，([。！？；：])", r"\1", text)
+    text = re.sub(r"\s+([，。！？；：、])", r"\1", text)
+    text = re.sub(r"([，。！？；：、])\s+", r"\1", text)
+    return text.strip()
 
 
 def remove_special_characters(text: str) -> str:
@@ -179,16 +231,25 @@ def filter_angle_brackets(text: str) -> str:
 
 def filter_asterisks(text: str) -> str:
     """
-    Removes text enclosed within asterisks of any length (*, **, ***, etc.) from a string.
+    Handle Markdown emphasis and roleplay actions.
+
+    Double/triple asterisks are Markdown bold/italic: keep the text and drop
+    only the markers, otherwise headings such as **解析过程** disappear from
+    the spoken output. Single-asterisk spans are treated as roleplay actions
+    and removed, preserving the previous behaviour for *smiles* style text.
 
     Args:
         text: The input string.
 
     Returns:
-        The string with asterisk-enclosed text removed.
+        The string with Markdown markers removed and roleplay actions dropped.
     """
-    # Handle asterisks of any length (*, **, ***, etc.)
-    filtered_text = re.sub(r"\*{1,}((?!\*).)*?\*{1,}", "", text)
+    # Keep the content of Markdown bold/italic spans.
+    filtered_text = re.sub(r"\*{3}(.+?)\*{3}", r"\1", text, flags=re.S)
+    filtered_text = re.sub(r"\*{2}(.+?)\*{2}", r"\1", filtered_text, flags=re.S)
+    # Single-asterisk actions are not meant to be spoken.
+    filtered_text = re.sub(r"\*([^*]+)\*", "", filtered_text)
+    filtered_text = re.sub(r"\*+", "", filtered_text)
 
     # Clean up any extra spaces
     filtered_text = re.sub(r"\s+", " ", filtered_text).strip()

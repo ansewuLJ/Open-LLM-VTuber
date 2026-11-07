@@ -45,6 +45,48 @@ ABBREVIATIONS = [
     "Dr.",
 ]
 
+# pysbd treats every dot in an IP, decimal, version, filename or email as a
+# sentence boundary. Replace those dots with a sentinel before segmentation
+# and restore them afterwards, so the TTS layer sees the complete token.
+_PERIOD_SENTINEL = ""
+_PROTECTED_PERIOD_PATTERNS = [
+    # IPv4
+    re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])"),
+    # Multi-part versions (3.5.1)
+    re.compile(r"(?<![\d.])\d+(?:\.\d+){2,}(?![\d.])"),
+    # Decimals (23.5)
+    re.compile(r"(?<![\d.])\d+\.\d+(?![\d.])"),
+    # Email addresses
+    re.compile(
+        r"(?<![\w.])[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?![\w.-])"
+    ),
+    # Filenames with common extensions
+    re.compile(
+        r"(?<![\w.-])[\w-]+\.(?:txt|md|py|json|onnx|wav|mp3|jpg|jpeg|png|pdf|"
+        r"zip|log|yaml|yml|toml|ini|cfg|conf|sh|js|ts|html|css|xml|csv|xlsx|"
+        r"docx|pptx|bin|safetensors|gguf)(?![\w.-])"
+    ),
+    # URLs and bare domains
+    re.compile(
+        r"(?<![\w.-])(?:https?://[^\s，。！？；：、]+|"
+        r"(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:/[^\s，。！？；：、]*)?)"
+    ),
+]
+
+
+def protect_periods(text: str) -> str:
+    """Protect dots inside IPs, decimals, versions, emails, files and URLs."""
+    for pattern in _PROTECTED_PERIOD_PATTERNS:
+        text = pattern.sub(
+            lambda match: match.group(0).replace(".", _PERIOD_SENTINEL), text
+        )
+    return text
+
+
+def restore_periods(text: str) -> str:
+    """Restore dots replaced by protect_periods()."""
+    return text.replace(_PERIOD_SENTINEL, ".")
+
 # Set of languages directly supported by pysbd
 SUPPORTED_LANGUAGES = {
     "am",
@@ -184,6 +226,7 @@ def segment_text_by_regex(text: str) -> Tuple[List[str], str]:
     if not text:
         return [], ""
 
+    text = protect_periods(text)
     complete_sentences = []
     remaining_text = text.strip()
 
@@ -207,7 +250,10 @@ def segment_text_by_regex(text: str) -> Tuple[List[str], str]:
         complete_sentences.append(potential_sentence)
         remaining_text = remaining_text[end_pos:].lstrip()
 
-    return complete_sentences, remaining_text
+    return (
+        [restore_periods(sentence) for sentence in complete_sentences],
+        restore_periods(remaining_text),
+    )
 
 
 def segment_text_by_pysbd(text: str) -> Tuple[List[str], str]:
@@ -224,6 +270,8 @@ def segment_text_by_pysbd(text: str) -> Tuple[List[str], str]:
     if not text:
         return [], ""
 
+    text = protect_periods(text)
+
     try:
         # Detect language
         lang = detect_language(text)
@@ -234,7 +282,7 @@ def segment_text_by_pysbd(text: str) -> Tuple[List[str], str]:
             sentences = segmenter.segment(text)
 
             if not sentences:
-                return [], text
+                return [], restore_periods(text)
 
             # Process all but the last sentence
             complete_sentences = []
@@ -255,6 +303,8 @@ def segment_text_by_pysbd(text: str) -> Tuple[List[str], str]:
             # Use regex for unsupported languages
             return segment_text_by_regex(text)
 
+        complete_sentences = [restore_periods(s) for s in complete_sentences]
+        remaining = restore_periods(remaining)
         logger.debug(
             f"Processed sentences: {complete_sentences}, Remaining: {remaining}"
         )

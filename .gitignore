@@ -71,6 +71,10 @@ conf.yaml.backup
 
 *.exe
 
+# Local TTS backups and generated voice samples (may contain personal audio)
+*.bak
+voice_samples/
+
 tmp/
 private/
 mcp_servers.json

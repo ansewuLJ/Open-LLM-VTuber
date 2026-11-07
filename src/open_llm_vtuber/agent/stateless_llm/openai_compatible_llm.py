@@ -105,6 +105,11 @@ class AsyncLLM(StatelessLLMInterface):
                 stream=True,
                 temperature=self.temperature,
                 tools=available_tools,
+                # Local patch: DeepSeek V4.1 Flash emits a long hidden reasoning
+                # stream before the answer, which adds several seconds of
+                # first-token latency to voice replies. This model expects
+                # `thinking`, not `enable_thinking`; the latter is ignored.
+                extra_body={"chat_template_kwargs": {"thinking": False}},
             )
             logger.debug(
                 f"Tool Support: {self.support_tools}, Available tools: {available_tools}"

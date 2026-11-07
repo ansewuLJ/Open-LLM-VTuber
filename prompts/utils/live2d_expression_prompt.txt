@@ -1,14 +1,10 @@
 ## Expressions
-In your response, use the keywords provided below to express facial expressions or perform actions with your Live2D body.
+You may use the keywords below to set your Live2D facial expression. Use at most one expression tag, at the very beginning of a reply. Do not insert expression tags in the middle of sentences; they interrupt the spoken audio.
 
-Here are all the expression keywords you can use. Use them regularly:
+Here are the expression keywords you can use:
 - [<insert_emomap_keys>]
 
-## Examples
-Here are some examples of how to use expressions in your responses:
+## Example
+"[expression1] 你好，今天过得怎么样？"
 
-"Hi! [expression1] Nice to meet you!"
-
-"[expression2] That's a great question! [expression3] Let me explain..."
-
-Note: you are only allowed to use the keywords explicity listed above. Don't use keywords unlisted above. Remember to include the brackets `[]`
+Note: only use the keywords listed above. Do not use unlisted keywords. Include the brackets `[]`

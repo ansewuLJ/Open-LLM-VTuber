@@ -1,4 +1,6 @@
 # src/open_llm_vtuber/tts/openai_tts.py
+import base64
+import json
 import os
 import sys
 from pathlib import Path
@@ -49,6 +51,31 @@ class TTSEngine(TTSInterface):
         self.new_audio_dir = "cache"
         self.temp_audio_file = "temp_openai"  # Use a different temp name
 
+        # Optional BreezeTTS2 / Qwen3-Base voice-clone conditioning. The
+        # reference is read once at startup and cached as a data URL so every
+        # sentence reuses the same voice without re-reading the file.
+        self.ref_text = os.environ.get("VTUBER_TTS_REF_TEXT", "").strip()
+        self.ref_data_url = None
+        ref_audio_path = os.environ.get("VTUBER_TTS_REF_AUDIO", "").strip()
+        if ref_audio_path:
+            try:
+                with open(ref_audio_path, "rb") as ref_file:
+                    encoded = base64.b64encode(ref_file.read()).decode("ascii")
+                self.ref_data_url = f"data:audio/wav;base64,{encoded}"
+                logger.info(
+                    f"Loaded TTS reference audio: {ref_audio_path} "
+                    f"({len(encoded) // 1024} KiB base64)"
+                )
+            except OSError as exc:
+                logger.error(f"Failed to load TTS reference audio {ref_audio_path}: {exc}")
+        self.sample_rate = os.environ.get("VTUBER_TTS_SAMPLE_RATE", "").strip()
+        raw_extra = os.environ.get("VTUBER_TTS_EXTRA_PARAMS", "").strip()
+        try:
+            self.extra_params = json.loads(raw_extra) if raw_extra else {}
+        except json.JSONDecodeError as exc:
+            logger.error(f"Invalid VTUBER_TTS_EXTRA_PARAMS JSON: {exc}")
+            self.extra_params = {}
+
         if not os.path.exists(self.new_audio_dir):
             os.makedirs(self.new_audio_dir)
 
@@ -82,20 +109,57 @@ class TTSEngine(TTSInterface):
         file_name = self.generate_cache_file_name(file_name_no_ext, self.file_extension)
         speech_file_path = Path(file_name)
 
+        # Formatting for speech is the upstream LLM's responsibility. Do not
+        # rewrite numbers, URLs, IPs or acronyms here; the only cleanup before
+        # this engine is tts_filter (Markdown/symbols) and the sentence
+        # divider's period protection, both of which avoid corrupting text.
+
         try:
             logger.debug(
                 f"Generating audio via {self.client.base_url} for text: '{text[:50]}...' with voice '{self.voice}' model '{self.model}'"
             )
+            # Qwen3-TTS CustomVoice accepts a natural-language style prompt
+            # (`instructions`) plus a `seed`. BreezeTTS2 uses the same fields
+            # plus `ref_audio` / `ref_text` for voice cloning, and
+            # `sample_rate` / `extra_params` for model-specific options.
+            extra_body = {}
+            instructions = os.environ.get(
+                "VTUBER_TTS_INSTRUCTIONS",
+                "语气自然平稳，像日常说话。",
+            ).strip()
+            if instructions:
+                extra_body["instructions"] = instructions
+
+            seed = os.environ.get("VTUBER_TTS_SEED", "42").strip()
+            if seed:
+                extra_body["seed"] = int(seed)
+
+            if self.ref_data_url:
+                extra_body["ref_audio"] = self.ref_data_url
+                if self.ref_text:
+                    extra_body["ref_text"] = self.ref_text
+
+            if self.sample_rate:
+                extra_body["sample_rate"] = int(self.sample_rate)
+
+            extra_body.update(self.extra_params)
+
+            create_kwargs = {
+                "model": self.model,
+                # The OpenAI SDK requires voice even when the server would
+                # accept it omitted. BreezeTTS2 clone mode takes the identity
+                # from ref_audio; S0 is its default checkpoint tag.
+                "voice": self.voice or "S0",
+                "input": text,
+                "response_format": self.file_extension,
+                "speed": speed,
+                "extra_body": extra_body,
+            }
+
             # Use with_streaming_response for potentially better handling of large audio files or network issues
-            with (
-                self.client.audio.speech.with_streaming_response.create(
-                    model=self.model,  # Model name expected by the compatible server (e.g., "kokoro")
-                    voice=self.voice,  # Voice name(s) expected by the compatible server (e.g., "af_sky+af_bella")
-                    input=text,
-                    response_format=self.file_extension,  # Use configured extension
-                    speed=speed,
-                ) as response
-            ):
+            with self.client.audio.speech.with_streaming_response.create(
+                **create_kwargs
+            ) as response:
                 # Stream the audio content to the file
                 response.stream_to_file(speech_file_path)
 
